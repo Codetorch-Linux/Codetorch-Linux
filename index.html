@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Codetorch Linux 1.0</title>
+  
+  <!-- System Font Preloads -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+  
+  <style>
+    /* Reset & Viewport Constraints */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #001A26;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #FFFFFF;
+    }
+
+    /* 1. Blink WASI Desktop Canvas Viewport */
+    #ct-de-viewport {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+    }
+
+    #ct-de-viewport canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* 2. DOM Window Manager Workspace Layer */
+    #ct-wm-workspace {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 20;
+      pointer-events: none; /* Let clicks pass through to Canvas unless on window */
+    }
+
+    .ct-window {
+      pointer-events: auto;
+      position: absolute;
+    }
+
+    /* 3. Kernel Boot Splash Screen */
+    #boot-splash {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #002B40;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.5s ease-out;
+    }
+
+    .boot-logo {
+      width: 96px;
+      height: 96px;
+      margin-bottom: 24px;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.05); opacity: 0.8; }
+    }
+
+    .boot-title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .boot-status {
+      font-size: 14px;
+      color: #00AFFF;
+      font-family: monospace;
+    }
+
+    /* 4. Storage Setup & Critical Modal Layer */
+    .ct-modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 15, 25, 0.85);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+
+    .ct-modal-box {
+      width: 480px;
+      background: #003A54;
+      border: 1px solid #005F87;
+      border-radius: 8px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      padding: 24px;
+    }
+
+    .ct-modal-header {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #F5821F;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ct-modal-body {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #E0E0E0;
+      margin-bottom: 20px;
+    }
+
+    .ct-input-group {
+      margin-bottom: 16px;
+    }
+
+    .ct-input-group label {
+      display: block;
+      font-size: 12px;
+      color: #00AFFF;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+
+    .ct-input-group input[type="text"] {
+      width: 100%;
+      background: #001A26;
+      border: 1px solid #005F87;
+      color: #FFF;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      outline: none;
+    }
+
+    .ct-input-group input[type="text"]:focus {
+      border-color: #00AFFF;
+    }
+
+    .ct-modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .ct-btn {
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .ct-btn-primary {
+      background: #F5821F;
+      color: #000;
+    }
+
+    .ct-btn-primary:hover {
+      background: #FF9B42;
+    }
+
+    .ct-btn-secondary {
+      background: #005F87;
+      color: #FFF;
+    }
+
+    .ct-btn-secondary:hover {
+      background: #0077A8;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Layer 1: Hardware WebGL Canvas Engine for WASI Plasma / GNOME Rendering -->
+  <div id="ct-de-viewport"></div>
+
+  <!-- Layer 2: Native DOM Workspace Window Manager -->
+  <div id="ct-wm-workspace"></div>
+
+  <!-- Layer 3: Kernel Boot Splash -->
+  <div id="boot-splash">
+    <svg class="boot-logo" viewBox="0 0 256 256">
+      <rect width="256" height="256" fill="#F5821F" rx="16"/>
+      <path d="M 40 60 L 110 128 L 40 196" stroke="#000" stroke-width="24" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="130" y1="196" x2="216" y2="196" stroke="#000" stroke-width="24" stroke-linecap="round"/>
+    </svg>
+    <div class="boot-title">Codetorch Linux 1.0</div>
+    <div id="boot-status" class="boot-status">Initializing WASI Kernel & ct-bus...</div>
+  </div>
+
+  <!-- Layer 4: First Boot / Empty IndexedDB Storage Configuration Modal -->
+  <div id="ct-storage-modal" class="ct-modal-backdrop hidden">
+    <div class="ct-modal-box">
+      <div class="ct-modal-header">
+        <span>💾</span> Storage Initialization Required
+      </div>
+      <div class="ct-modal-body">
+        IndexedDB hot storage is empty or browser cache was cleared. Configure your primary storage backend below:
+      </div>
+
+      <div class="ct-input-group">
+        <label for="remote-url-input">Remote Storage Server URL (Optional)</label>
+        <input type="text" id="remote-url-input" placeholder="https://storage.codetorch.org/user-shard.img" />
+      </div>
+
+      <div class="ct-modal-actions">
+        <label class="ct-btn ct-btn-secondary">
+          📂 Load ZIP Backup
+          <input type="file" id="zip-backup-input" accept=".zip" hidden />
+        </label>
+        <button id="btn-start-fresh" class="ct-btn ct-btn-primary">Initialize Fresh OS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Subsystem Bootstrap Entrypoint -->
+  <script type="module" src="/src/system/init.js"></script>
+
+</body>
+</html>
