@@ -1,109 +1,94 @@
 /**
- * Codetorch Linux Kernel Init & Session Bootloader
+ * Codetorch Linux Kernel Bootloader & Runtime Initializer
  * Path: /src/system/init.js
  * License: GNU GPL v3
  */
 
 import { CTFS } from "./storage/ctfs.js";
 import { CTOverlayFS } from "./storage/ct-overlayfs.js";
-import { CTBlinkSessionManager } from "../de/core/blink-session.js";
+import { CTBus } from "./ct-bus.js";
+import { CTQuotaMonitor } from "./storage/ct-quota-monitor.js";
+import { CTBlinkEmulatorSession } from "./emulator/blink-emulator-session.js";
+import { CTV86Session } from "./emulator/v86-session.js";
+import { CodinalTerminal } from "../apps/ct-term/terminal.js";
+import { CTFSFileManager } from "../apps/ctfs-gui/app.js";
+import { CTSettingsManager } from "../apps/ct-settings/app.js";
 
-class KernelInitializer {
+export class CodetorchInit {
   constructor() {
+    this.bus = new CTBus();
     this.ctfs = null;
     this.overlayfs = null;
-    this.sessionManager = null;
-    this.bootSplash = document.getElementById("boot-splash");
-    this.bootStatus = document.getElementById("boot-status");
-    this.storageModal = document.getElementById("ct-storage-modal");
+    this.quotaMonitor = null;
+    this.blinkEngine = null;
+    this.v86Display = null;
   }
 
   async boot() {
-    this.updateStatus("Initializing ct-bus & System Storage...");
+    console.log("[init] Starting Codetorch Linux boot sequence...");
 
-    // 1. Initialize Primary Filesystem (ctfs)
+    // 1. Initialize IPC & Multi-tiered Storage Systems
     this.ctfs = new CTFS();
     await this.ctfs.init();
 
-    // 2. Check for Saved Storage URL or Existing Storage Signature
-    const savedStorageURL = localStorage.getItem("ct_storage_server_url");
-    const isDBInitialized = await this.ctfs.isStorageInitialized();
-
-    if (!isDBInitialized && !savedStorageURL) {
-      // First boot or wiped browser data: Pause boot & display setup modal
-      this.updateStatus("Awaiting Storage Configuration...");
-      this.showStorageModal();
-    } else {
-      // Existing session or saved URL found: Proceed with mount & desktop boot
-      await this.continueBootSequence(savedStorageURL);
-    }
-  }
-
-  showStorageModal() {
-    this.storageModal.classList.remove("hidden");
-
-    const remoteInput = document.getElementById("remote-url-input");
-    const zipInput = document.getElementById("zip-backup-input");
-    const btnFresh = document.getElementById("btn-start-fresh");
-
-    // Fresh OS Start Handler
-    btnFresh.addEventListener("click", async () => {
-      const url = remoteInput.value.trim();
-      if (url) {
-        localStorage.setItem("ct_storage_server_url", url);
-      }
-      this.storageModal.classList.add("hidden");
-      await this.ctfs.markInitialized();
-      await this.continueBootSequence(url);
-    });
-
-    // Restore Backup Handler
-    zipInput.addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        this.updateStatus("Restoring backup archive...");
-        this.storageModal.classList.add("hidden");
-        await this.ctfs.restoreFromZip(file);
-        await this.continueBootSequence(remoteInput.value.trim());
-      }
-    });
-  }
-
-  async continueBootSequence(remoteStorageURL) {
-    this.updateStatus("Mounting ct-overlayfs (Steam, Tor, VirtualBox)...");
-
-    // 3. Mount Read-Only Overlay Image
-    this.overlayfs = new CTOverlayFS(this.ctfs, remoteStorageURL || "/system/base-rootfs");
+    this.overlayfs = new CTOverlayFS("/system/base-rootfs");
     await this.overlayfs.init();
 
-    this.updateStatus("Launching Desktop Session worker...");
+    this.quotaMonitor = new CTQuotaMonitor(this.ctfs, this.bus);
+    this.quotaMonitor.start();
 
-    // 4. Initialize Desktop Engine (KDE Plasma or GNOME inside Blink)
-    this.sessionManager = new CTBlinkSessionManager(this.overlayfs);
-    await this.sessionManager.bootSession();
+    // 2. Initialize Core Applications
+    this.initApps();
 
-    // 5. Fade out splash screen once desktop viewport is alive
-    this.updateStatus("System Ready.");
-    setTimeout(() => {
-      if (this.bootSplash) {
-        this.bootSplash.style.opacity = "0";
-        setTimeout(() => this.bootSplash.classList.add("hidden"), 500);
-      }
-    }, 300);
+    // 3. Boot Primary OS Engine (Blink)
+    this.blinkEngine = new CTBlinkEmulatorSession(this.bus, this.overlayfs);
+
+    // 4. Initialize v86 as Dedicated Screen Output Renderer
+    this.v86Display = new CTV86Session("screen-container", this.bus);
+
+    // Check system DE configuration to launch environment
+    const deConfig = await this.ctfs.readFile("/etc/de.conf");
+    const deName = deConfig ? new TextDecoder().decode(deConfig).trim() : "plasma";
+
+    console.log(`[init] Launching ${deName.toUpperCase()} desktop shell on Blink OS engine...`);
+    
+    // Start display layer on v86 canvas context
+    await this.v86Display.startSession({
+      autostart: true
+    });
+
+    // Start OS execution on Blink core engine
+    await this.blinkEngine.startSession(`/system/base-rootfs/bin/${deName}-desktop.wasm`);
+
+    this.hideSplashScreen();
   }
 
-  updateStatus(text) {
-    if (this.bootStatus) {
-      this.bootStatus.textContent = text;
+  initApps() {
+    // Mount built-in apps into DOM windows if elements exist
+    if (document.getElementById("terminal-container")) {
+      new CodinalTerminal("terminal-container", this.ctfs, this.bus);
     }
-    console.log(`[kernel init] ${text}`);
+    if (document.getElementById("file-manager-container")) {
+      new CTFSFileManager("file-manager-container", this.ctfs, this.overlayfs, this.bus);
+    }
+    if (document.getElementById("settings-container")) {
+      new CTSettingsManager("settings-container", this.ctfs, this.bus);
+    }
+  }
+
+  hideSplashScreen() {
+    const splash = document.getElementById("splash-screen");
+    if (splash) {
+      splash.style.opacity = "0";
+      setTimeout(() => splash.remove(), 500);
+    }
   }
 }
 
-// Instantiate and launch system kernel on DOM Ready
-window.addEventListener("DOMContentLoaded", () => {
-  window.CodetorchKernel = new KernelInitializer();
-  window.CodetorchKernel.boot().catch(err => {
-    console.error("[Kernel Panic]", err);
+// Auto-boot on DOM ready
+if (typeof window !== "undefined") {
+  window.addEventListener("DOMContentLoaded", () => {
+    const system = new CodetorchInit();
+    system.boot();
   });
-});
+}
