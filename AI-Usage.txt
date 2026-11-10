@@ -1,0 +1,1 @@
+This Project used Google gemini and has not been tested due to working on a locked down chromebook (with no way to test), any and all contributions to the Codetorch Linux project will be nice (lets get AI code from near 90% to less than 1%), it also uses code form other github repositories
